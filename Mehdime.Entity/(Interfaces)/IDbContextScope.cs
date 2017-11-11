@@ -59,12 +59,13 @@ namespace Mehdime.Entity
         /// </summary>
         Task<int> SaveChangesAsync(CancellationToken cancelToken);
 
+#if NET45 || NET462
         /// <summary>
         /// Reloads the provided persistent entities from the data store
         /// in the DbContext instances managed by the parent scope. 
         /// 
-		/// If there is no parent scope (i.e. if this DbContextScope
-		/// if the top-level scope), does nothing.
+        /// If there is no parent scope (i.e. if this DbContextScope
+        /// if the top-level scope), does nothing.
         /// 
         /// This is useful when you have forced the creation of a new
         /// DbContextScope and want to make sure that the parent scope
@@ -92,6 +93,7 @@ namespace Mehdime.Entity
 		/// with parsimony). 
 		/// </summary>
         Task RefreshEntitiesInParentScopeAsync(IEnumerable entities);
+#endif
 
         /// <summary>
         /// The DbContext instances that this DbContextScope manages. Don't call SaveChanges() on the DbContext themselves!

@@ -8,14 +8,19 @@
 using System;
 using System.Collections;
 using System.Data;
+using System.Linq;
+using System.Runtime.CompilerServices;
+
+using System.Threading;
+using System.Threading.Tasks;
+#if NET45 || NET462
 using System.Data.Entity;
 using System.Data.Entity.Core.Objects;
 using System.Data.Entity.Infrastructure;
-using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Runtime.Remoting.Messaging;
-using System.Threading;
-using System.Threading.Tasks;
+#elif NETSTANDARD2
+using Microsoft.EntityFrameworkCore;
+#endif
 
 namespace Mehdime.Entity
 {
@@ -128,6 +133,7 @@ namespace Mehdime.Entity
             _dbContexts.Rollback();
         }
 
+#if NET45 || NET462
         public void RefreshEntitiesInParentScope(IEnumerable entities)
         {
             if (entities == null)
@@ -150,15 +156,16 @@ namespace Mehdime.Entity
             // entities from one DbContext instance to another. NHibernate has support for this sort of stuff 
             // but EF still lags behind in this respect. But there is hope: https://entityframework.codeplex.com/workitem/864
 
-			// NOTE: DbContext implements the ObjectContext property of the IObjectContextAdapter interface explicitely.
-			// So we must cast the DbContext instances to IObjectContextAdapter in order to access their ObjectContext.
-			// This cast is completely safe.
+            // NOTE: DbContext implements the ObjectContext property of the IObjectContextAdapter interface explicitely.
+            // So we must cast the DbContext instances to IObjectContextAdapter in order to access their ObjectContext.
+            // This cast is completely safe.
 
-			foreach (IObjectContextAdapter contextInCurrentScope in _dbContexts.InitializedDbContexts.Values)
+
+            foreach (IObjectContextAdapter contextInCurrentScope in _dbContexts.InitializedDbContexts.Values)
             {
                 var correspondingParentContext =
                     _parentScope._dbContexts.InitializedDbContexts.Values.SingleOrDefault(parentContext => parentContext.GetType() == contextInCurrentScope.GetType())
-					as IObjectContextAdapter;
+                    as IObjectContextAdapter;     
 
                 if (correspondingParentContext == null)
                     continue; // No DbContext of this type has been created in the parent scope yet. So no need to refresh anything for this DbContext type.
@@ -171,14 +178,12 @@ namespace Mehdime.Entity
                     // First, we need to find what the EntityKey for this entity is. 
                     // We need this EntityKey in order to check if this entity has
                     // already been loaded in the parent DbContext's first-level cache (the ObjectStateManager).
-                    ObjectStateEntry stateInCurrentScope;
-                    if (contextInCurrentScope.ObjectContext.ObjectStateManager.TryGetObjectStateEntry(toRefresh, out stateInCurrentScope))
+                    if (contextInCurrentScope.ObjectContext.ObjectStateManager.TryGetObjectStateEntry(toRefresh, out var stateInCurrentScope))
                     {
                         var key = stateInCurrentScope.EntityKey;
 
                         // Now we can see if that entity exists in the parent DbContext instance and refresh it.
-                        ObjectStateEntry stateInParentScope;
-                        if (correspondingParentContext.ObjectContext.ObjectStateManager.TryGetObjectStateEntry(key, out stateInParentScope))
+                        if (correspondingParentContext.ObjectContext.ObjectStateManager.TryGetObjectStateEntry(key, out var stateInParentScope))
                         {
                             // Only refresh the entity in the parent DbContext from the database if that entity hasn't already been
                             // modified in the parent. Otherwise, let the whatever concurency rules the application uses
@@ -192,7 +197,7 @@ namespace Mehdime.Entity
                 }
             }
         }
-
+        
         public async Task RefreshEntitiesInParentScopeAsync(IEnumerable entities)
         {
             // See comments in the sync version of this method for an explanation of what we're doing here.
@@ -217,13 +222,11 @@ namespace Mehdime.Entity
 
                 foreach (var toRefresh in entities)
                 {
-                    ObjectStateEntry stateInCurrentScope;
-                    if (contextInCurrentScope.ObjectContext.ObjectStateManager.TryGetObjectStateEntry(toRefresh, out stateInCurrentScope))
+                    if (contextInCurrentScope.ObjectContext.ObjectStateManager.TryGetObjectStateEntry(toRefresh, out var stateInCurrentScope))
                     {
                         var key = stateInCurrentScope.EntityKey;
 
-                        ObjectStateEntry stateInParentScope;
-                        if (correspondingParentContext.ObjectContext.ObjectStateManager.TryGetObjectStateEntry(key, out stateInParentScope))
+                        if (correspondingParentContext.ObjectContext.ObjectStateManager.TryGetObjectStateEntry(key, out var stateInParentScope))
                         {
                             if (stateInParentScope.State == EntityState.Unchanged)
                             {
@@ -234,6 +237,7 @@ namespace Mehdime.Entity
                 }
             }
         }
+#endif
 
         public void Dispose()
         {
@@ -340,7 +344,7 @@ Stack Trace:
 
         }
 
-        #region Ambient Context Logic
+#region Ambient Context Logic
 
         /*
          * This is where all the magic happens. And there is not much of it.
@@ -433,13 +437,21 @@ Stack Trace:
             if (newAmbientScope == null)
                 throw new ArgumentNullException("newAmbientScope");
 
+#if NET45 || NET462
             var current = CallContext.LogicalGetData(AmbientDbContextScopeKey) as InstanceIdentifier;
+#elif NETSTANDARD2
+            var current = CallContext.GetData(AmbientDbContextScopeKey) as InstanceIdentifier;
+#endif
 
             if (current == newAmbientScope._instanceIdentifier)
                 return;
 
             // Store the new scope's instance identifier in the CallContext, making it the ambient scope
+#if NET45 || NET462
             CallContext.LogicalSetData(AmbientDbContextScopeKey, newAmbientScope._instanceIdentifier);
+#elif NETSTANDARD2
+            CallContext.SetData(AmbientDbContextScopeKey, newAmbientScope._instanceIdentifier);
+#endif
 
             // Keep track of this instance (or do nothing if we're already tracking it)
             DbContextScopeInstances.GetValue(newAmbientScope._instanceIdentifier, key => newAmbientScope);
@@ -451,8 +463,13 @@ Stack Trace:
         /// </summary>
         internal static void RemoveAmbientScope()
         {
+#if NET45 || NET462
             var current = CallContext.LogicalGetData(AmbientDbContextScopeKey) as InstanceIdentifier;
             CallContext.LogicalSetData(AmbientDbContextScopeKey, null);
+#elif NETSTANDARD2
+            var current = CallContext.GetData(AmbientDbContextScopeKey) as InstanceIdentifier;
+            CallContext.SetData(AmbientDbContextScopeKey, null);
+#endif
 
             // If there was an ambient scope, we can stop tracking it now
             if (current != null)
@@ -467,7 +484,11 @@ Stack Trace:
         /// </summary>
         internal static void HideAmbientScope()
         {
+#if NET45 || NET462
             CallContext.LogicalSetData(AmbientDbContextScopeKey, null);
+#elif NETSTANDARD2
+            CallContext.SetData(AmbientDbContextScopeKey, null);
+#endif
         }
 
         /// <summary>
@@ -476,13 +497,16 @@ Stack Trace:
         internal static DbContextScope GetAmbientScope()
         {
             // Retrieve the identifier of the ambient scope (if any)
+#if NET45 || NET462
             var instanceIdentifier = CallContext.LogicalGetData(AmbientDbContextScopeKey) as InstanceIdentifier;
+#elif NETSTANDARD2
+            var instanceIdentifier = CallContext.GetData(AmbientDbContextScopeKey) as InstanceIdentifier;
+#endif
             if (instanceIdentifier == null)
                 return null; // Either no ambient context has been set or we've crossed an app domain boundary and have (intentionally) lost the ambient context
 
             // Retrieve the DbContextScope instance corresponding to this identifier
-            DbContextScope ambientScope;
-            if (DbContextScopeInstances.TryGetValue(instanceIdentifier, out ambientScope))
+            if (DbContextScopeInstances.TryGetValue(instanceIdentifier, out var ambientScope))
                 return ambientScope;
 
             // We have an instance identifier in the CallContext but no corresponding instance
@@ -502,7 +526,7 @@ Stack Trace:
             return null;
         }
 
-        #endregion
+#endregion
     }
 
     /*

@@ -8,10 +8,16 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
-using System.Data.Entity;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
+
+#if NETSTANDARD2
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
+#elif NET45 || NET462
+using System.Data.Entity; 
+#endif
 
 namespace Mehdime.Entity
 {
@@ -30,7 +36,13 @@ namespace Mehdime.Entity
     public class DbContextCollection : IDbContextCollection
     {
         private Dictionary<Type, DbContext> _initializedDbContexts;
+
+#if NET45 || NET462
         private Dictionary<DbContext, DbContextTransaction> _transactions; 
+#elif NETSTANDARD2
+        private Dictionary<DbContext, IDbContextTransaction> _transactions;
+#endif
+
         private IsolationLevel? _isolationLevel;
         private readonly IDbContextFactory _dbContextFactory;
         private bool _disposed;
@@ -45,7 +57,11 @@ namespace Mehdime.Entity
             _completed = false;
 
             _initializedDbContexts = new Dictionary<Type, DbContext>();
+#if NET45 || NET462
             _transactions = new Dictionary<DbContext, DbContextTransaction>();
+#elif NETSTANDARD2
+            _transactions = new Dictionary<DbContext, IDbContextTransaction>();
+#endif
 
             _readOnly = readOnly;
             _isolationLevel = isolationLevel;
@@ -71,7 +87,11 @@ namespace Mehdime.Entity
 
                 if (_readOnly)
                 {
+#if NET45 || NET462
                     dbContext.Configuration.AutoDetectChangesEnabled = false;
+#elif NETSTANDARD2
+                    dbContext.ChangeTracker.AutoDetectChangesEnabled = false;
+#endif
                 }
 
                 if (_isolationLevel.HasValue)
@@ -278,8 +298,7 @@ namespace Mehdime.Entity
         /// </summary>
         private static TValue GetValueOrDefault<TKey, TValue>(IDictionary<TKey, TValue> dictionary, TKey key)
         {
-            TValue value;
-            return dictionary.TryGetValue(key, out value) ? value : default(TValue);
+            return dictionary.TryGetValue(key, out var value) ? value : default(TValue);
         }
     }
 }
